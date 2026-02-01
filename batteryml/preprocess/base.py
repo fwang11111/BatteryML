@@ -16,8 +16,13 @@ class BasePreprocessor:
         self.silent = silent
         self.output_dir = Path(output_dir)
 
-    def process(self, *args, **kwargs) -> List[BatteryData]:
-        """Main logic for preprocessing data."""
+    def process(self, *args, **kwargs) -> tuple[int, int]:
+        """Main logic for preprocessing data.
+
+        Returns:
+            (processed_count, skipped_count)
+        """
+        raise NotImplementedError
 
     def __call__(self, *args, **kwargs):
         process_batteries_num, skip_batteries_num = self.process(

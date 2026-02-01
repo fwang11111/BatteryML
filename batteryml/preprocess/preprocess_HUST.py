@@ -18,7 +18,7 @@ from batteryml.preprocess.base import BasePreprocessor
 
 @PREPROCESSORS.register()
 class HUSTPreprocessor(BasePreprocessor):
-    def process(self, parentdir, **kwargs) -> List[BatteryData]:
+    def process(self, parentdir, **kwargs) -> tuple[int, int]:
         raw_file = Path(parentdir) / 'hust_data.zip'
 
         with zipfile.ZipFile(raw_file, 'r') as zip_ref:

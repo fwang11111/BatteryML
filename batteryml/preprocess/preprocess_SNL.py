@@ -15,7 +15,7 @@ from batteryml.preprocess.base import BasePreprocessor
 
 @PREPROCESSORS.register()
 class SNLPreprocessor(BasePreprocessor):
-    def process(self, parentdir, **kwargs) -> List[BatteryData]:
+    def process(self, parentdir, **kwargs) -> tuple[int, int]:
         path = Path(parentdir)
         cells = set(
             x.stem.split('_timeseries')[0]

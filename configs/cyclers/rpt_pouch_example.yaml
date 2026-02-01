@@ -1,0 +1,47 @@
+# Example config for `batteryml preprocess RPT ...`
+#
+# This is designed for sparse discharge-only RPT checkpoints stored as CSV/XLSX.
+# Recommended layout:
+#   <raw_dir>/<cell_id>/rpt_000.csv
+#   <raw_dir>/<cell_id>/rpt_100.csv
+#   ...
+
+cell_id_prefix: RPT
+
+# How to infer cell_id from file paths:
+# - parent_dir: cell_id is the parent folder name of each file
+# - filename_regex: extract cell_id from the filename via `cell_id_regex`
+cell_id_from: parent_dir
+cell_id_regex: '^([^_]+)'
+
+# How to infer cycle_number from filename (first capture group is used)
+cycle_number_regex: '(?:cycle|cyc|rpt)[-_]?(\d+)'
+
+# Discharge current sign in your files:
+# - negative: discharge current is < 0
+# - positive: discharge current is > 0
+# - auto: infer from median(nonzero current)
+discharge_current_sign: auto
+
+columns:
+  time_s: time
+  current_a: I
+  voltage_v: V
+  temperature_c: T
+  discharge_capacity_ah: Q
+
+# Unit conversion scales (multiply raw values by these)
+scales:
+  time_s: 1.0
+  current_a: 1.0
+  voltage_v: 1.0
+  temperature_c: 1.0
+  discharge_capacity_ah: 1.0
+
+# Cell-level metadata (important for meaningful SOH/RUL)
+form_factor: pouch
+anode_material: graphite
+cathode_material: NMC
+nominal_capacity_in_Ah: 80.0
+min_voltage_limit_in_V: 2.7
+max_voltage_limit_in_V: 4.2

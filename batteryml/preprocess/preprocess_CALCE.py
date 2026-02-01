@@ -21,7 +21,7 @@ from batteryml.preprocess.base import BasePreprocessor
 
 @PREPROCESSORS.register()
 class CALCEPreprocessor(BasePreprocessor):
-    def process(self, parentdir, **kwargs) -> List[BatteryData]:
+    def process(self, parentdir, **kwargs) -> tuple[int, int]:
         path = Path(parentdir)
         raw_files = [Path(f) for f in path.glob('*.zip')]
         cells = [f.stem for f in raw_files]

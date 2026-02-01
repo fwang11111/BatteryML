@@ -17,7 +17,7 @@ from batteryml import BatteryData, CycleData, CyclingProtocol
 
 @PREPROCESSORS.register()
 class NEWAREPreprocessor(BasePreprocessor):
-    def process(self, parentdir, config_path, **kwargs) -> List[BatteryData]:
+    def process(self, parentdir, config_path, **kwargs) -> tuple[int, int]:
         if config_path is None or str(config_path) == "None":
             raise ValueError("Config path is not specified.")
         else:

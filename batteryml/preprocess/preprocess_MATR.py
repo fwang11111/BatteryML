@@ -15,7 +15,7 @@ from batteryml import BatteryData, CycleData, CyclingProtocol
 
 @PREPROCESSORS.register()
 class MATRPreprocessor(BasePreprocessor):
-    def process(self, parentdir, **kwargs) -> List[BatteryData]:
+    def process(self, parentdir, **kwargs) -> tuple[int, int]:
         raw_files = [
             parentdir / 'MATR_batch_20170512.mat',
             parentdir / 'MATR_batch_20170630.mat',

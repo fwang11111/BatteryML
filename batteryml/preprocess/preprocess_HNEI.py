@@ -15,7 +15,7 @@ from batteryml.preprocess.base import BasePreprocessor
 
 @PREPROCESSORS.register()
 class HNEIPreprocessor(BasePreprocessor):
-    def process(self, parent_dir, **kwargs) -> List[BatteryData]:
+    def process(self, parent_dir, **kwargs) -> tuple[int, int]:
         path = Path(parent_dir)
         cells = set(
             x.stem.split('_timeseries')[0]

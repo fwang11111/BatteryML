@@ -15,7 +15,7 @@ from batteryml.preprocess.base import BasePreprocessor
 
 @PREPROCESSORS.register()
 class UL_PURPreprocessor(BasePreprocessor):
-    def process(self, parentdir: str, **kwargs) -> List[BatteryData]:
+    def process(self, parentdir: str, **kwargs) -> tuple[int, int]:
         path = Path(parentdir)
         cells = set(
             x.stem.split('_timeseries')[0]
