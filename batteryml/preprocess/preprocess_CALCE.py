@@ -63,7 +63,8 @@ class CALCEPreprocessor(BasePreprocessor):
                 for file in tqdm(files, desc='Load data from files')
             ])
             df = df.sort_values(['date', 'Test_Time(s)'])
-            df['Cycle_Index'] = organize_cycle_index(df['Cycle_Index'].values)
+            # Pandas may return a read-only NumPy view; numba requires writable arrays.
+            df['Cycle_Index'] = organize_cycle_index(df['Cycle_Index'].values.copy())
 
             cycles = []
             for cycle_index, (_, cycle_df) in \
@@ -119,8 +120,12 @@ class CALCEPreprocessor(BasePreprocessor):
             if not self.silent:
                 tqdm.write(f'File: {battery.cell_id} dumped to pkl file')
 
-            # Remove the inflated directory
-            shutil.rmtree(rawdatadir)
+            # Remove the inflated directory. On Windows, Excel readers may keep
+            # file handles open briefly; ignore cleanup failures.
+            try:
+                shutil.rmtree(rawdatadir)
+            except PermissionError:
+                pass
 
         return process_batteries_num, skip_batteries_num
 
@@ -168,17 +173,16 @@ def load_excel(excel_file):
     if cache_file.exists():
         return pd.read_csv(cache_file)
 
-    file = pd.ExcelFile(excel_file)
-
-    channel_data = []
-    for sheet_name in file.sheet_names:
-        if sheet_name.startswith('Channel'):
-            channel_data.append(file.parse(sheet_name))
-
-    # Dirty data, the sheet name is Sheet1 (CX2_34_8_16_10.xlsx)
-    if len(channel_data) == 0:
+    with pd.ExcelFile(excel_file) as file:
+        channel_data = []
         for sheet_name in file.sheet_names:
-            channel_data.append(file.parse(sheet_name))
+            if sheet_name.startswith('Channel'):
+                channel_data.append(file.parse(sheet_name))
+
+        # Dirty data, the sheet name is Sheet1 (CX2_34_8_16_10.xlsx)
+        if len(channel_data) == 0:
+            for sheet_name in file.sheet_names:
+                channel_data.append(file.parse(sheet_name))
 
     channel_data = pd.concat(channel_data)
     date = extract_date_from_filename(excel_file.stem)

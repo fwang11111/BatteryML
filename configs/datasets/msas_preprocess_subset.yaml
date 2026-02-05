@@ -1,0 +1,10 @@
+# MSAS preprocessing (subset) for quick validation
+
+nominal_capacity_in_Ah: 4.9
+include_tags:
+  - ET_T23
+  - CU
+  - exCU
+  - AT_T23
+cell_id_prefix: MSAS
+max_cells: 5

@@ -3,42 +3,29 @@
 
 from __future__ import annotations
 
+from typing import List
+
 import numpy as np
 import torch
 
 from batteryml.builders import LABEL_ANNOTATORS
 from batteryml.data.battery_data import BatteryData, CycleData
+from batteryml.label.base import BaseLabelAnnotator
 
-from .base import BaseLabelAnnotator
 
-
-def _pick_cycle(cell_data: BatteryData,
-                target_cycle_number: int,
-                *,
-                allow_nearest: bool,
-                max_abs_diff: int) -> CycleData | None:
-    cycles = list(cell_data.cycle_data or [])
-    if not cycles:
+def _cycle_msas_efc(cycle: CycleData) -> float | None:
+    efc = getattr(cycle, 'additional_data', {}).get('msas_efc')
+    if efc is None:
+        return None
+    try:
+        return float(efc)
+    except (TypeError, ValueError):
         return None
 
-    exact = [c for c in cycles if int(c.cycle_number) == int(target_cycle_number)]
-    if exact:
-        return exact[0]
 
-    if not allow_nearest:
-        return None
-
-    best = None
-    best_diff = float('inf')
-    for c in cycles:
-        diff = abs(int(c.cycle_number) - int(target_cycle_number))
-        if best is None or diff < best_diff:
-            best = c
-            best_diff = diff
-
-    if best is None or best_diff > max_abs_diff:
-        return None
-    return best
+def _cycle_tag(cycle: CycleData) -> str | None:
+    tag = getattr(cycle, 'additional_data', {}).get('msas_tag')
+    return str(tag) if tag is not None else None
 
 
 def _infer_discharge_sign(current: np.ndarray) -> str:
@@ -113,6 +100,32 @@ def _cc_q_end_ah(
     return q_total
 
 
+def _pick_cycle_by_efc(
+    cycles: List[CycleData],
+    target_efc: float,
+    *,
+    max_abs_error: float,
+    allowed_tags: set[str] | None,
+) -> CycleData | None:
+    best = None
+    best_err = float('inf')
+    for c in cycles:
+        efc = _cycle_msas_efc(c)
+        if efc is None:
+            continue
+        if allowed_tags is not None:
+            tag = _cycle_tag(c)
+            if tag is None or tag not in allowed_tags:
+                continue
+        err = abs(efc - float(target_efc))
+        if best is None or err < best_err:
+            best = c
+            best_err = err
+    if best is None:
+        return None
+    return best if best_err <= float(max_abs_error) else None
+
+
 def _cycle_q_end_ah(
     cycle: CycleData,
     *,
@@ -136,10 +149,8 @@ def _cycle_q_end_ah(
 
 
 @LABEL_ANNOTATORS.register()
-class SOHAtCycleNumberLabelAnnotator(BaseLabelAnnotator):
-    """SOH label at a specific *cycle_number*.
-
-    Unlike `SOHLabelAnnotator`, this does NOT assume dense cycle indices.
+class SOHAtEFCLabelAnnotator(BaseLabelAnnotator):
+    """Label = SOH (capacity retention) at a target EFC for MSAS-style cells.
 
     If `include_cv` is False, Q is computed by trimming the *tail* CV region:
     points are excluded only when current drops below a fraction of the CC median
@@ -148,20 +159,22 @@ class SOHAtCycleNumberLabelAnnotator(BaseLabelAnnotator):
 
     def __init__(
         self,
-        cycle_number: int = 600,
-        baseline_cycle_number: int = 0,
+        target_efc: float = 600.0,
+        baseline_efc: float = 0.0,
+        max_abs_efc_error: float = 10.0,
+        allowed_tags: List[str] | None = None,
         mode: str = 'relative',
-        allow_nearest_cycle: bool = True,
-        max_cycle_number_gap: int = 2,
         include_cv: bool = True,
         cc_current_fraction: float = 0.98,
         cv_voltage_window_in_V: float = 0.05,
     ):
-        self.cycle_number = int(cycle_number)
-        self.baseline_cycle_number = int(baseline_cycle_number)
+        self.target_efc = float(target_efc)
+        self.baseline_efc = float(baseline_efc)
+        self.max_abs_efc_error = float(max_abs_efc_error)
+        self.allowed_tags = set(str(x) for x in allowed_tags) if allowed_tags else None
+        if mode not in {'relative', 'absolute'}:
+            raise ValueError(f'Invalid mode: {mode}. Use "relative" or "absolute".')
         self.mode = mode
-        self.allow_nearest_cycle = bool(allow_nearest_cycle)
-        self.max_cycle_number_gap = int(max_cycle_number_gap)
         self.include_cv = bool(include_cv)
         self.cc_current_fraction = float(cc_current_fraction)
         if not (0.0 < self.cc_current_fraction <= 1.0):
@@ -171,48 +184,40 @@ class SOHAtCycleNumberLabelAnnotator(BaseLabelAnnotator):
             raise ValueError('cv_voltage_window_in_V must be > 0.')
 
     def process_cell(self, cell_data: BatteryData) -> torch.Tensor:
-        target = _pick_cycle(
-            cell_data,
-            self.cycle_number,
-            allow_nearest=self.allow_nearest_cycle,
-            max_abs_diff=self.max_cycle_number_gap,
-        )
-        if target is None:
+        cycles = list(cell_data.cycle_data or [])
+        if not cycles:
             return torch.tensor(float('nan'))
 
-        q_t = _cycle_q_end_ah(
-            target,
-            include_cv=self.include_cv,
-            cc_current_fraction=self.cc_current_fraction,
-            cv_voltage_window_in_V=self.cv_voltage_window_in_V,
+        base = _pick_cycle_by_efc(
+            cycles,
+            self.baseline_efc,
+            max_abs_error=self.max_abs_efc_error,
+            allowed_tags=self.allowed_tags,
         )
-        if q_t is None:
+        tgt = _pick_cycle_by_efc(
+            cycles,
+            self.target_efc,
+            max_abs_error=self.max_abs_efc_error,
+            allowed_tags=self.allowed_tags,
+        )
+        if base is None or tgt is None:
             return torch.tensor(float('nan'))
-
-        if self.mode != 'relative':
-            return torch.tensor(float(q_t))
-
-        baseline = _pick_cycle(
-            cell_data,
-            self.baseline_cycle_number,
-            allow_nearest=self.allow_nearest_cycle,
-            max_abs_diff=self.max_cycle_number_gap,
-        )
-        if baseline is None:
-            # Fallback to nominal capacity if baseline is missing
-            q0 = getattr(cell_data, 'nominal_capacity_in_Ah', None)
-            if q0 is None or q0 == 0:
-                return torch.tensor(float('nan'))
-            return torch.tensor(float(q_t) / float(q0))
 
         q0 = _cycle_q_end_ah(
-            baseline,
+            base,
             include_cv=self.include_cv,
             cc_current_fraction=self.cc_current_fraction,
             cv_voltage_window_in_V=self.cv_voltage_window_in_V,
         )
-        if q0 is None:
+        qt = _cycle_q_end_ah(
+            tgt,
+            include_cv=self.include_cv,
+            cc_current_fraction=self.cc_current_fraction,
+            cv_voltage_window_in_V=self.cv_voltage_window_in_V,
+        )
+        if q0 is None or qt is None:
             return torch.tensor(float('nan'))
-        if q0 == 0:
-            return torch.tensor(float('nan'))
-        return torch.tensor(float(q_t) / float(q0))
+
+        if self.mode == 'absolute':
+            return torch.tensor(float(qt))
+        return torch.tensor(float(qt / q0))

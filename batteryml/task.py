@@ -50,22 +50,56 @@ class Task:
         pbar = tqdm(test_list, desc='Reading test data')
         test_cells = [BatteryData.load(path) for path in pbar]
 
-        self.train_cells = train_cells
-        self.test_cells = test_cells
-
-        # Extracting features
-        train_features = self.feature_extractor(train_cells)
-        test_features = self.feature_extractor(test_cells)
+        # Labels first, so we can drop invalid cells before heavy feature extraction.
         train_labels = self.label_annotator(train_cells)
         test_labels = self.label_annotator(test_cells)
 
         # Omit NaN label cells
         train_mask = ~torch.isnan(train_labels)
         test_mask = ~torch.isnan(test_labels)
-        train_features = train_features[train_mask]
-        test_features = test_features[test_mask]
+        train_cells = [c for c, keep in zip(train_cells, train_mask.tolist()) if keep]
+        test_cells = [c for c, keep in zip(test_cells, test_mask.tolist()) if keep]
         train_labels = train_labels[train_mask]
         test_labels = test_labels[test_mask]
+
+        self.train_cells = train_cells
+        self.test_cells = test_cells
+
+        # Extracting features (only for valid-label cells)
+        train_features = self.feature_extractor(train_cells)
+        test_features = self.feature_extractor(test_cells)
+
+        # Drop cells that produced invalid features (NaN/Inf) to avoid poisoning
+        # downstream transformations (e.g., Z-score mean/std becomes NaN).
+        if len(train_features) > 0:
+            train_feat_mask = torch.isfinite(train_features).view(len(train_features), -1).all(dim=1)
+        else:
+            train_feat_mask = torch.zeros(0, dtype=torch.bool)
+        if len(test_features) > 0:
+            test_feat_mask = torch.isfinite(test_features).view(len(test_features), -1).all(dim=1)
+        else:
+            test_feat_mask = torch.zeros(0, dtype=torch.bool)
+
+        train_cells = [c for c, keep in zip(train_cells, train_feat_mask.tolist()) if keep]
+        test_cells = [c for c, keep in zip(test_cells, test_feat_mask.tolist()) if keep]
+        train_features = train_features[train_feat_mask]
+        test_features = test_features[test_feat_mask]
+        train_labels = train_labels[train_feat_mask]
+        test_labels = test_labels[test_feat_mask]
+
+        self.train_cells = train_cells
+        self.test_cells = test_cells
+
+        if len(train_labels) == 0:
+            raise ValueError(
+                'No training samples after filtering NaN labels / invalid features. '
+                'Check your label cycle_number, required feature cycles, and dataset coverage.'
+            )
+        if len(test_labels) == 0:
+            raise ValueError(
+                'No test samples after filtering NaN labels / invalid features. '
+                'Check your test split and whether test cells contain the required cycles.'
+            )
 
         dataset = DataBundle(
             train_features, train_labels, test_features, test_labels,

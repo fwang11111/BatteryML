@@ -1,0 +1,15 @@
+# Multi-Stage Aging Study (MSAS) preprocessing options
+
+# Nominal capacity for Samsung INR21700-50E
+nominal_capacity_in_Ah: 4.9
+
+# Optional: only keep specific check-up types for downstream ML.
+# Set to null to keep all non-ZYK sessions.
+include_tags:
+  - ET_T23
+  - CU
+  - exCU
+  - AT_T23
+
+# Optional: change output cell_id prefix.
+cell_id_prefix: MSAS
